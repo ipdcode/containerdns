@@ -22,14 +22,11 @@ then the user access the domain later, the user will get the same service ip.
 ## Setup / Install
 
 Then get and compile ContainerDNS:
-
-    go get github.com/tigcode/containerdns
+```
+    git clone https://github.com/tigcode/containerdns
     cd $GOPATH/src/github.com/tigcode/containerdns
-    go build -v
-	cd $GOPATH/src/github.com/tigcode/containerdns/containerdns-kubeapi
-	go build -v
-	...
-
+    make
+```
 
 ## Configuration
 
