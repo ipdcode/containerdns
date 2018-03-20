@@ -5,14 +5,14 @@
 package dnsServer
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	 "github.com/coreos/etcd/clientv3"
+	"github.com/coreos/etcd/clientv3"
 	"github.com/coreos/etcd/mvcc/mvccpb"
 	"github.com/golang/glog"
-	"github.com/tiglabs/containerdns/queue"
 	"github.com/miekg/dns"
-	"golang.org/x/net/context"
+	"github.com/tiglabs/containerdns/queue"
 	"math"
 	"net"
 	"path"
@@ -23,29 +23,29 @@ import (
 )
 
 const Version = "2.1.1"
-const DnsPathPrefix  = "containerdns"
+const DnsPathPrefix = "containerdns"
 
 var (
-	EtcdCachesLock   sync.RWMutex                                              // lcok EtcdRecordCaches
-	EtcdRecordCaches map[string][]ServiceRecord = make(map[string][]ServiceRecord) //
-	EtcdRecordUpdateTime map[string]time.Time = make(map[string]time.Time)  //
+	EtcdCachesLock       sync.RWMutex                                                  // lcok EtcdRecordCaches
+	EtcdRecordCaches     map[string][]ServiceRecord = make(map[string][]ServiceRecord) //
+	EtcdRecordUpdateTime map[string]time.Time       = make(map[string]time.Time)       //
 )
 
 type server struct {
-	backend Backend
+	backend       Backend
 	dnsUDPclient  *dns.Client // used for forwarding queries
 	dnsTCPclient  *dns.Client // used for forwarding queries
 	rcache        *Cache
-	ipMonitorPath   string
-	dnsDomains        [] string
-	dnsAddr           string
-	msgPool         *queue.Queue
-	syncPeriod      time.Duration
-	skipDomain        bool
+	ipMonitorPath string
+	dnsDomains    []string
+	dnsAddr       string
+	msgPool       *queue.Queue
+	syncPeriod    time.Duration
+	skipDomain    bool
 
 	forwardNameServers []string
-	subDomainServers  map[string][]string
-	minTtl    uint32
+	subDomainServers   map[string][]string
+	minTtl             uint32
 }
 
 type Backend interface {
@@ -67,29 +67,29 @@ func (s *server) ParseRecords(kv *mvccpb.KeyValue) (*ServiceRecord, error) {
 	return record, nil
 }
 
-
 func appendDnsDomain(s1, s2 string) string {
 	if len(s2) > 0 && s2[0] == '.' {
 		return s1 + s2
 	}
 	return s1 + "." + s2
 }
+
 // New returns a new containerdns server.
-func New(backend Backend,domains[]string ,addr,ipMonitorPath string,forwardNameServers []string, subDomainServers map[string][]string,cacheSize int ,random,hold bool,skip bool) *server {
-	s := new (server)
-	s. backend   =      backend
-	timeOut :=    30 * time.Second
-	s.dnsUDPclient=  &dns.Client{Net: "udp", ReadTimeout: timeOut, WriteTimeout: timeOut, SingleInflight: true}
-	s.dnsTCPclient=  &dns.Client{Net: "tcp", ReadTimeout: timeOut, WriteTimeout: timeOut, SingleInflight: true}
+func New(backend Backend, domains []string, addr, ipMonitorPath string, forwardNameServers []string, subDomainServers map[string][]string, cacheSize int, random, hold bool, skip bool) *server {
+	s := new(server)
+	s.backend = backend
+	timeOut := 30 * time.Second
+	s.dnsUDPclient = &dns.Client{Net: "udp", ReadTimeout: timeOut, WriteTimeout: timeOut, SingleInflight: true}
+	s.dnsTCPclient = &dns.Client{Net: "tcp", ReadTimeout: timeOut, WriteTimeout: timeOut, SingleInflight: true}
 	s.dnsDomains = domains[:]
-	s.dnsAddr   = addr
-	s.ipMonitorPath= ipMonitorPath
+	s.dnsAddr = addr
+	s.ipMonitorPath = ipMonitorPath
 	s.msgPool = queue.QueueNew()
 	s.msgPool.Reset = cacheMsgRest
 	s.syncPeriod = 10 * time.Minute
 	s.minTtl = 60
 	s.skipDomain = skip
-	s.rcache =    NewMsgCache(cacheSize,random, hold,s.minTtl)
+	s.rcache = NewMsgCache(cacheSize, random, hold, s.minTtl)
 	s.forwardNameServers = forwardNameServers[:]
 	s.subDomainServers = subDomainServers
 	return s
@@ -121,9 +121,9 @@ func (s *server) getSvcDomainSkipName(key string) string {
 	if !s.skipDomain {
 		return key
 	}
-	for _, domain := range(s.dnsDomains){
-		if strings.HasSuffix(key,domain){
-			for i := len(key) - len(domain)-2; i >= 0; i-- {
+	for _, domain := range s.dnsDomains {
+		if strings.HasSuffix(key, domain) {
+			for i := len(key) - len(domain) - 2; i >= 0; i-- {
 				if key[i] == '.' {
 					return key[0:i+1] + domain
 				}
@@ -181,15 +181,16 @@ func (s *server) updateRcacheParseRecord(kv *mvccpb.KeyValue) interface{} {
 }
 
 // add a record to canme typeA  map
-func (s *server)doCreateRecordInCacheCname( record *ServiceRecord){
-	if ip := net.ParseIP(record.DnsHost); ip == nil{
+func (s *server) doCreateRecordInCacheCname(record *ServiceRecord) {
+	if ip := net.ParseIP(record.DnsHost); ip == nil {
 		key := dns.Fqdn(record.DnsHost)
-		glog.V(2).Infof("ecord.Host = %s key =%s\n",record.DnsHost, s.getSvcCnameName(record.Key))
-		s.rcache.InsertCachedDataCnameTypeAMap(key,s.getSvcCnameName(record.Key))
+		glog.V(2).Infof("ecord.Host = %s key =%s\n", record.DnsHost, s.getSvcCnameName(record.Key))
+		s.rcache.InsertCachedDataCnameTypeAMap(key, s.getSvcCnameName(record.Key))
 	}
 }
+
 // add a record to canme typeA  map
-func (s *server) createRecordInCacheCname(kv *mvccpb.KeyValue){
+func (s *server) createRecordInCacheCname(kv *mvccpb.KeyValue) {
 	if kv == nil {
 		return
 	}
@@ -198,14 +199,15 @@ func (s *server) createRecordInCacheCname(kv *mvccpb.KeyValue){
 		glog.Infof("ParseRecords err %s \n", err.Error())
 		return
 	}
-	if record.Dnstype != "CNAME"{
+	if record.Dnstype != "CNAME" {
 		return
 	}
 	s.doCreateRecordInCacheCname(record)
 	return
 }
+
 // del a record to canme typeA  map
-func (s *server) deleteRecordInCacheCname(kv *mvccpb.KeyValue)  {
+func (s *server) deleteRecordInCacheCname(kv *mvccpb.KeyValue) {
 	if kv == nil {
 		return
 	}
@@ -214,25 +216,25 @@ func (s *server) deleteRecordInCacheCname(kv *mvccpb.KeyValue)  {
 		glog.Infof("ParseRecords err %s \n", err.Error())
 		return
 	}
-	if record.Dnstype != "CNAME"{
+	if record.Dnstype != "CNAME" {
 		return
 	}
 
-	if ip := net.ParseIP(record.DnsHost); ip == nil{
+	if ip := net.ParseIP(record.DnsHost); ip == nil {
 		key := dns.Fqdn(record.DnsHost)
-		s.rcache.DelCachedDataCnameTypeAMap(key,s.getSvcCnameName(record.Key))
+		s.rcache.DelCachedDataCnameTypeAMap(key, s.getSvcCnameName(record.Key))
 	}
 	return
 }
 
-func (s *server)  WatchForDnsDomain(domain string, watchidx int64,client clientv3.Client){
+func (s *server) WatchForDnsDomain(domain string, watchidx int64, client clientv3.Client) {
 
 	var watcher clientv3.WatchChan
 	recordCatched := false
 
 reWatch:
-        if recordCatched{
-		watchidx = watchidx+1
+	if recordCatched {
+		watchidx = watchidx + 1
 		recordCatched = false
 	}
 	glog.Infof("WatchForDomain idx : %d ", watchidx)
@@ -247,7 +249,7 @@ reWatch:
 	defer cancel()
 
 	watcher = client.Watch(ctx, DnsPath(domain), opts...)
-        var wres clientv3.WatchResponse
+	var wres clientv3.WatchResponse
 
 	for wres = range watcher {
 		if wres.Err() != nil {
@@ -263,17 +265,17 @@ reWatch:
 
 	}
 	if err := wres.Err(); err != nil {
-		glog.Infof("WatchForDnsDomain err =%s\n",err)
+		glog.Infof("WatchForDnsDomain err =%s\n", err)
 		watchidx = wres.Header.Revision
 		goto reWatch
 	}
 	if err := ctx.Err(); err != nil {
-		glog.Infof("WatchForDnsDomain err =%s\n",err)
+		glog.Infof("WatchForDnsDomain err =%s\n", err)
 		watchidx = wres.Header.Revision
 		goto reWatch
 	}
 
-	glog.Infof("WatchForDomain out : %d  watcher=%v domain =%s\n", watchidx,watcher,domain)
+	glog.Infof("WatchForDomain out : %d  watcher=%v domain =%s\n", watchidx, watcher, domain)
 }
 
 func (s *server) UpdateRcache(e *clientv3.Event) {
@@ -326,7 +328,7 @@ func (s *server) UpdateRcache(e *clientv3.Event) {
 }
 
 // Run is a blocking operation that starts the server listening on the DNS ports.
-func (s *server) RunToEnd()  {
+func (s *server) RunToEnd() {
 	mux := dns.NewServeMux()
 	mux.Handle(".", s)
 	go func() {
@@ -341,11 +343,10 @@ func (s *server) RunToEnd()  {
 		}
 	}()
 	glog.Infof("ready for queries on %s for %s://%s ", s.dnsDomains, "udp", s.dnsAddr)
-	select{}
+	select {}
 }
 
-
-func FitUdpSize(m *dns.Msg) (*dns.Msg) {
+func FitUdpSize(m *dns.Msg) *dns.Msg {
 	m.Truncated = true
 	m.Extra = nil
 	min, max := 0, len(m.Answer)
@@ -372,12 +373,12 @@ func FitUdpSize(m *dns.Msg) (*dns.Msg) {
 	return m
 }
 
-func (s *server) checkAndWtiteMsg(w dns.ResponseWriter, req *dns.Msg,m *dns.Msg, tcp,write bool){
+func (s *server) checkAndWtiteMsg(w dns.ResponseWriter, req *dns.Msg, m *dns.Msg, tcp, write bool) {
 	if !tcp {
-		if  m.Len() > 512{
+		if m.Len() > 512 {
 			m = FitUdpSize(m)
 		}
-	}else{
+	} else {
 		if m.Len() > dns.MaxMsgSize {
 			atomic.AddInt64(&statsErrorCountOverflow, 1)
 			msgFail := new(dns.Msg)
@@ -390,20 +391,19 @@ func (s *server) checkAndWtiteMsg(w dns.ResponseWriter, req *dns.Msg,m *dns.Msg,
 		s.RoundRobinRecords(m.Answer)
 	}
 
-	if write{
+	if write {
 		if err := w.WriteMsg(m); err != nil {
 			glog.Infof("failure to return reply %q", err)
 		}
 	}
 }
 
-
 func (s *server) RoundRobinRecords(answers []dns.RR) {
 	if len(answers) == 1 {
 		return
 	}
 	if len(answers) == 2 {
-		if answers[0].Header().Rrtype == dns.TypeCNAME{
+		if answers[0].Header().Rrtype == dns.TypeCNAME {
 			return
 		}
 		swapIdx := int(dns.Id()) % 2
@@ -415,19 +415,19 @@ func (s *server) RoundRobinRecords(answers []dns.RR) {
 	maxLen := len(answers)
 	for idx := 0; idx < maxLen; idx++ {
 		swapIdx := int(dns.Id()) % maxLen
-		if  answers[idx].Header().Rrtype != dns.TypeA || answers[swapIdx].Header().Rrtype != dns.TypeA || swapIdx == idx {
+		if answers[idx].Header().Rrtype != dns.TypeA || answers[swapIdx].Header().Rrtype != dns.TypeA || swapIdx == idx {
 			continue
 		}
 		answers[idx], answers[swapIdx] = answers[swapIdx], answers[idx]
 	}
 }
 
-func (s *server)getMsgResource(req *dns.Msg)*dns.Msg{
+func (s *server) getMsgResource(req *dns.Msg) *dns.Msg {
 	var m *dns.Msg
 	msgP := s.msgPool.DeQueue()
-	if msgP == nil{
+	if msgP == nil {
 		m = new(dns.Msg)
-	}else{
+	} else {
 		m = msgP.(*dns.Msg)
 	}
 	m.SetReply(req)
@@ -437,7 +437,7 @@ func (s *server)getMsgResource(req *dns.Msg)*dns.Msg{
 	return m
 }
 
-func (s *server)processLocalDomainRecord(w dns.ResponseWriter, req *dns.Msg, m *dns.Msg,remoteIp,parentDomain string, timeNow time.Time){
+func (s *server) processLocalDomainRecord(w dns.ResponseWriter, req *dns.Msg, m *dns.Msg, remoteIp, parentDomain string, timeNow time.Time) {
 	q := req.Question[0]
 	name := strings.ToLower(q.Name)
 	tcp := isTCPQuery(w)
@@ -446,12 +446,12 @@ func (s *server)processLocalDomainRecord(w dns.ResponseWriter, req *dns.Msg, m *
 	EtcdCachesLock.RUnlock()
 
 	defer func() {
-		s.checkAndWtiteMsg(w,req,m,tcp,false)
-		if q.Qtype == dns.TypeA && !tcp || (q.Qtype == dns.TypeAAAA && !tcp){
+		s.checkAndWtiteMsg(w, req, m, tcp, false)
+		if q.Qtype == dns.TypeA && !tcp || (q.Qtype == dns.TypeAAAA && !tcp) {
 			//when insert we could not chage the EtcdCaches with the EtcdCachesLock
 			EtcdCachesLock.RLock()
 			updateTimeNow := s.GetEtcdRecordLastUpdateTime(name)
-			if updateTimeNow.Equal(updateTime){
+			if updateTimeNow.Equal(updateTime) {
 				s.rcache.Add2MsgCache(CacheKey(q, tcp), m, remoteIp, timeNow, false)
 			}
 			EtcdCachesLock.RUnlock()
@@ -466,30 +466,30 @@ func (s *server)processLocalDomainRecord(w dns.ResponseWriter, req *dns.Msg, m *
 	switch q.Qtype {
 	case dns.TypeNS:
 		nsDomain := ""
-		for _, domain := range(s.dnsDomains){
+		for _, domain := range s.dnsDomains {
 			if name == domain {
 				nsDomain = appendDnsDomain("ns.dns", domain)
 				break
 			}
 		}
-		if nsDomain != ""{
-			dnsRecords, extra, err = s.getNSRecordsBind9Record(q, nsDomain )
+		if nsDomain != "" {
+			dnsRecords, extra, err = s.getNSRecordsBind9Record(q, nsDomain)
 		}
 
 	case dns.TypeA, dns.TypeAAAA:
 		// domain name return bind9 type
-		for _, domain := range(s.dnsDomains){
-			if name != domain{
+		for _, domain := range s.dnsDomains {
+			if name != domain {
 				continue
 			}
 			nsDomain := appendDnsDomain("ns.dns", domain)
-			ns, extra, _ := s.getNSRecordsBind9Record(q, nsDomain )
+			ns, extra, _ := s.getNSRecordsBind9Record(q, nsDomain)
 			m.Ns = append(m.Ns, ns...)
 			m.Extra = append(m.Extra, extra...)
 			dnsIpname := "dns-ip.dns." + nsDomain
 			dnsRecords, err := s.getAddressRecords(q, dnsIpname, false)
 			if isEtcdNameNotFound(err, s) {
-				s.dnsNameError(m, req,parentDomain)
+				s.dnsNameError(m, req, parentDomain)
 				return
 			}
 			m.Answer = append(m.Answer, dnsRecords...)
@@ -500,14 +500,14 @@ func (s *server)processLocalDomainRecord(w dns.ResponseWriter, req *dns.Msg, m *
 
 	case dns.TypeTXT:
 		txtDomain := ""
-		for _, domain := range(s.dnsDomains){
+		for _, domain := range s.dnsDomains {
 			if name == domain {
 				txtDomain = appendDnsDomain("txt", domain)
 				break
 			}
 		}
-		if txtDomain != ""{
-			dnsRecords, err = s.getTXTRecords(q, txtDomain )
+		if txtDomain != "" {
+			dnsRecords, err = s.getTXTRecords(q, txtDomain)
 		}
 
 	case dns.TypeCNAME:
@@ -515,24 +515,24 @@ func (s *server)processLocalDomainRecord(w dns.ResponseWriter, req *dns.Msg, m *
 
 	case dns.TypeMX:
 		mailDomain := ""
-		for _, domain := range(s.dnsDomains){
+		for _, domain := range s.dnsDomains {
 			if name == domain {
 				mailDomain = appendDnsDomain("mail", domain)
 				break
 			}
 		}
-		if mailDomain != ""{
-			dnsRecords, extra, err = s.getMXRecords(q, mailDomain,tcp)
+		if mailDomain != "" {
+			dnsRecords, extra, err = s.getMXRecords(q, mailDomain, tcp)
 		}
 
 	case dns.TypeSRV:
-		dnsRecords, extra, err = s.getSRVRecords(q, name,tcp)
+		dnsRecords, extra, err = s.getSRVRecords(q, name, tcp)
 	default:
 		s.dnsServerFailure(m, req)
 		return
 	}
 	if isEtcdNameNotFound(err, s) {
-		s.dnsNameError(m, req,parentDomain)
+		s.dnsNameError(m, req, parentDomain)
 		return
 	}
 	m.Answer = append(m.Answer, dnsRecords...)
@@ -545,11 +545,10 @@ func (s *server)processLocalDomainRecord(w dns.ResponseWriter, req *dns.Msg, m *
 	}
 }
 
-
 // ServeDNS is the handler for DNS requests
 
 func (s *server) ServeDNS(w dns.ResponseWriter, req *dns.Msg) {
-        m := s.getMsgResource(req)
+	m := s.getMsgResource(req)
 	defer s.msgPool.EnQueue(m)
 	timeNow := time.Now().Local()
 	q := req.Question[0]
@@ -571,12 +570,12 @@ func (s *server) ServeDNS(w dns.ResponseWriter, req *dns.Msg) {
 	if m1 != nil {
 		atomic.AddInt64(&statsRequestCountCached, 1)
 		glog.V(4).Infof("cache hit %q: %v\n ", q.Name, m1)
-		s.checkAndWtiteMsg(w,req,m1,tcp,true)
+		s.checkAndWtiteMsg(w, req, m1, tcp, true)
 		MsgCachePool.EnQueue(m1)
 		return
 	}
 
-	if q.Qclass == dns.ClassCHAOS  || q.Qtype == dns.TypePTR  {
+	if q.Qclass == dns.ClassCHAOS || q.Qtype == dns.TypePTR {
 		m.SetReply(req)
 		m.SetRcode(req, dns.RcodeServerFailure)
 		if err := w.WriteMsg(m); err != nil {
@@ -588,7 +587,7 @@ func (s *server) ServeDNS(w dns.ResponseWriter, req *dns.Msg) {
 	// cluster domain forward
 	for subKey, subVal := range s.subDomainServers {
 		if strings.HasSuffix(name, subKey) {
-			resp := s.dnsDomainForward(w, req, subVal,remoteIp[0], timeNow)
+			resp := s.dnsDomainForward(w, req, subVal, remoteIp[0], timeNow)
 			glog.V(4).Infof("ServeSubDomainForward %q: %v \n ", q.Name, resp.Answer)
 			return
 		}
@@ -597,16 +596,15 @@ func (s *server) ServeDNS(w dns.ResponseWriter, req *dns.Msg) {
 	for _, domain := range s.dnsDomains {
 		if strings.HasSuffix(name, domain) {
 			// find local record and insert to cache
-			s.processLocalDomainRecord(w,req,m,remoteIp[0],domain ,timeNow)
+			s.processLocalDomainRecord(w, req, m, remoteIp[0], domain, timeNow)
 			return
 		}
 	}
-        // ex-domain froward
-	resp := s.dnsDomainForward(w, req,s.forwardNameServers, remoteIp[0], timeNow)
+	// ex-domain froward
+	resp := s.dnsDomainForward(w, req, s.forwardNameServers, remoteIp[0], timeNow)
 	glog.V(4).Infof("ServeDNSForward %q: %v \n ", q.Name, resp.Answer)
 	return
 }
-
 
 func (s *server) getAddressRecords(q dns.Question, name string, preCname bool) (dnsRecords []dns.RR, err error) {
 	etcdRecords, err := s.backend.Records(name)
@@ -638,23 +636,23 @@ func (s *server) getAddressRecords(q dns.Question, name string, preCname bool) (
 			}
 			continue
 		}
-		if ip.To4() != nil && (q.Qtype == dns.TypeA ) {
+		if ip.To4() != nil && (q.Qtype == dns.TypeA) {
 			dnsRecords = append(dnsRecords, record.NewRecordA(q.Name, ip.To4()))
-		}else if ip.To4() == nil && (q.Qtype == dns.TypeAAAA ){
+		} else if ip.To4() == nil && (q.Qtype == dns.TypeAAAA) {
 			dnsRecords = append(dnsRecords, record.NewRecordAAAA(q.Name, ip.To16()))
 		}
 	}
 	return dnsRecords, nil
 }
 
-func (s *server)AddressRecordsCheck (name string, recordCaches map[string][]ServiceRecord,preCname bool) (dnsRecords []dns.RR, err error) {
+func (s *server) AddressRecordsCheck(name string, recordCaches map[string][]ServiceRecord, preCname bool) (dnsRecords []dns.RR, err error) {
 	for _, record := range recordCaches[name] {
 		if record.DnsHost == "" {
 			continue
 		}
 		ip := net.ParseIP(record.DnsHost)
 		// cname
-		if ip == nil{
+		if ip == nil {
 			if name == dns.Fqdn(record.DnsHost) {
 				continue
 			}
@@ -663,7 +661,7 @@ func (s *server)AddressRecordsCheck (name string, recordCaches map[string][]Serv
 				glog.Infof("CNAME lookup limit of 1 exceeded for %s", cnameRecord)
 				continue
 			}
-			ipRecords, err := s.AddressRecordsCheck(dns.Fqdn(record.DnsHost),recordCaches, true)
+			ipRecords, err := s.AddressRecordsCheck(dns.Fqdn(record.DnsHost), recordCaches, true)
 			if err == nil {
 				if len(ipRecords) > 0 {
 					dnsRecords = append(dnsRecords, cnameRecord) // we do not need the record just return the ip
@@ -672,7 +670,7 @@ func (s *server)AddressRecordsCheck (name string, recordCaches map[string][]Serv
 			}
 			continue
 		}
-		if ip.To4() != nil{
+		if ip.To4() != nil {
 			dnsRecords = append(dnsRecords, record.NewRecordA(name, ip.To4()))
 		}
 	}
@@ -699,15 +697,15 @@ func (s *server) getNSRecords(q dns.Question, name string) (dnsRecords []dns.RR,
 	}
 	for _, record := range etcdRecords {
 		ip := net.ParseIP(record.DnsHost)
-		if ip == nil{
+		if ip == nil {
 			return nil, nil, fmt.Errorf("NS record must be an IP address")
 		}
-		if ip.To4() != nil{
+		if ip.To4() != nil {
 			record.DnsHost = DnsDomain(record.Key)
 			dnsRecords = append(dnsRecords, record.NewRecordNS(q.Name, record.DnsHost))
 			extra = append(extra, record.NewRecordA(record.DnsHost, ip.To4()))
 
-		}else {
+		} else {
 			record.DnsHost = DnsDomain(record.Key)
 			dnsRecords = append(dnsRecords, record.NewRecordNS(q.Name, record.DnsHost))
 			extra = append(extra, record.NewRecordAAAA(record.DnsHost, ip.To16()))
@@ -715,7 +713,6 @@ func (s *server) getNSRecords(q dns.Question, name string) (dnsRecords []dns.RR,
 	}
 	return dnsRecords, extra, nil
 }
-
 
 func (s *server) getNSRecordsBind9Record(q dns.Question, name string) (dnsRecords []dns.RR, extra []dns.RR, err error) {
 	etcdRecords, err := s.backend.Records(name)
@@ -724,16 +721,16 @@ func (s *server) getNSRecordsBind9Record(q dns.Question, name string) (dnsRecord
 	}
 	for _, record := range etcdRecords {
 		ip := net.ParseIP(record.DnsHost)
-		if ip == nil{
+		if ip == nil {
 			return nil, nil, fmt.Errorf("NS record must be an IP address")
 		}
-		if ip.To4() != nil{
+		if ip.To4() != nil {
 			domain := DnsDomain(record.Key)
 			domain = strings.Replace(domain, "ns.dns.", "", 1)
 			record.DnsHost = domain
 			dnsRecords = append(dnsRecords, record.NewRecordNS(q.Name, record.DnsHost))
 			extra = append(extra, record.NewRecordA(record.DnsHost, ip.To4()))
-		}else{
+		} else {
 			domain := DnsDomain(record.Key)
 			domain = strings.Replace(domain, "ns.dns.", "", 1)
 			record.DnsHost = domain
@@ -744,15 +741,15 @@ func (s *server) getNSRecordsBind9Record(q dns.Question, name string) (dnsRecord
 	return dnsRecords, extra, nil
 }
 
-func (s *server) isSubDomain(name string ) bool {
+func (s *server) isSubDomain(name string) bool {
 	for _, domain := range s.dnsDomains {
-		if strings.HasSuffix(name, domain){
+		if strings.HasSuffix(name, domain) {
 			return true
 		}
 	}
 	return false
 }
-func (s *server) getSRVRecords(q dns.Question, name string,tcp bool) (dnsRecords []dns.RR, extra []dns.RR, err error) {
+func (s *server) getSRVRecords(q dns.Question, name string, tcp bool) (dnsRecords []dns.RR, extra []dns.RR, err error) {
 	etcdRecords, err := s.backend.Records(name)
 	if err != nil {
 		return nil, nil, err
@@ -780,7 +777,7 @@ func (s *server) getSRVRecords(q dns.Question, name string,tcp bool) (dnsRecords
 		}
 		weight := uint16(math.Floor(weightf))
 		ip := net.ParseIP(record.DnsHost)
-		if ip == nil{
+		if ip == nil {
 			srv := record.NewRecordSRV(q.Name, weight)
 			dnsRecords = append(dnsRecords, srv)
 			if _, ok := foundRecord[srv.Target]; ok {
@@ -801,7 +798,7 @@ func (s *server) getSRVRecords(q dns.Question, name string,tcp bool) (dnsRecords
 			newR := record.NewRecordSRV(q.Name, weight)
 			dnsRecords = append(dnsRecords, newR)
 			extra = append(extra, record.NewRecordA(newR.Target, ip.To4()))
-		}else{
+		} else {
 			record.DnsHost = DnsDomain(record.Key)
 			newR := record.NewRecordSRV(q.Name, weight)
 			dnsRecords = append(dnsRecords, newR)
@@ -811,7 +808,7 @@ func (s *server) getSRVRecords(q dns.Question, name string,tcp bool) (dnsRecords
 	return dnsRecords, extra, nil
 }
 
-func (s *server) getMXRecords(q dns.Question, name string,tcp bool) (dnsRecords []dns.RR, extra []dns.RR, err error) {
+func (s *server) getMXRecords(q dns.Question, name string, tcp bool) (dnsRecords []dns.RR, extra []dns.RR, err error) {
 	etcdRecords, err := s.backend.Records(name)
 	if err != nil {
 		return nil, nil, err
@@ -829,7 +826,7 @@ func (s *server) getMXRecords(q dns.Question, name string,tcp bool) (dnsRecords 
 				break
 			}
 			foundRecord[mxR.Mx] = true
-			if !s.isSubDomain( mxR.Mx) {
+			if !s.isSubDomain(mxR.Mx) {
 				continue
 			}
 			// Internal name
@@ -867,11 +864,10 @@ func (s *server) getTXTRecords(q dns.Question, name string) (dnsRecords []dns.RR
 	return dnsRecords, nil
 }
 
-
-func (s *server) genDnsNewSOA(domain string ) dns.RR {
-	return &dns.SOA{Hdr: dns.RR_Header{Name: domain , Rrtype: dns.TypeSOA, Class: dns.ClassINET, Ttl: 60},
-		Ns:      appendDnsDomain("ns1",domain ),
-		Mbox:    appendDnsDomain("hostmaster@",domain ),
+func (s *server) genDnsNewSOA(domain string) dns.RR {
+	return &dns.SOA{Hdr: dns.RR_Header{Name: domain, Rrtype: dns.TypeSOA, Class: dns.ClassINET, Ttl: 60},
+		Ns:      appendDnsDomain("ns1", domain),
+		Mbox:    appendDnsDomain("hostmaster@", domain),
 		Serial:  uint32(time.Now().Truncate(time.Hour).Unix()),
 		Refresh: 14400,
 		Retry:   3600,
@@ -892,7 +888,7 @@ func (s *server) isDuplicateCNAME(r *dns.CNAME, dnsRecords []dns.RR) bool {
 	return false
 }
 
-func (s *server) dnsNameError(m, req *dns.Msg,domain string) {
+func (s *server) dnsNameError(m, req *dns.Msg, domain string) {
 	m.SetRcode(req, dns.RcodeNameError)
 	m.Ns = []dns.RR{s.genDnsNewSOA(domain)}
 	m.Ns[0].Header().Ttl = s.minTtl
@@ -912,7 +908,6 @@ func (s *server) dnsServerFailure(m, req *dns.Msg) {
 	atomic.AddInt64(&statsErrorCountServfail, 1)
 }
 
-
 func isTCPQuery(w dns.ResponseWriter) bool {
 	_, ok := w.RemoteAddr().(*net.TCPAddr)
 	return ok
@@ -920,7 +915,7 @@ func isTCPQuery(w dns.ResponseWriter) bool {
 
 func isEtcdNameNotFound(err error, s *server) bool {
 	if err != nil {
-		if strings.HasPrefix(err.Error(),"key not found") {
+		if strings.HasPrefix(err.Error(), "key not found") {
 			return true
 		}
 		glog.Infof("error from backend: %s", err)

@@ -1,20 +1,20 @@
 package etcdv3
 
 import (
+	"context"
 	"errors"
 	"github.com/coreos/etcd/clientv3"
 	"github.com/coreos/etcd/pkg/transport"
 	"github.com/golang/glog"
-	"golang.org/x/net/context"
-	"time"
 	"net"
 	"net/http"
+	"time"
 )
 
 type EtcdV3 struct {
-	client *clientv3.Client
-	ctx    context.Context
-	timeOut  time.Duration
+	client  *clientv3.Client
+	ctx     context.Context
+	timeOut time.Duration
 }
 
 func newHTTPSTransport(certFile, keyFile, caFile string) (*http.Transport, error) {
@@ -62,15 +62,15 @@ func (etcdcli *EtcdV3) InitEtcd(etcdServerList []string, etcdCertfile, etcdKeyFi
 
 	tr, err := newHTTPSTransport(etcdCertfile, etcdKeyFile, etcdCafile)
 	if err != nil {
-		return  err
+		return err
 	}
 	etcdCfg := clientv3.Config{
 		Endpoints: etcdServerList,
-		TLS: tr.TLSClientConfig,
+		TLS:       tr.TLSClientConfig,
 	}
 	etcdClient, err := clientv3.New(etcdCfg)
 	if err != nil {
-		return  err
+		return err
 	}
 	etcdcli.client = etcdClient
 	etcdcli.ctx = context.Background()
@@ -105,7 +105,7 @@ func (etcdcli *EtcdV3) Get(key string, recursive bool) (*clientv3.GetResponse, e
 
 // Create implements storage.Interface.Creat
 func (etcdcli *EtcdV3) Set(key string, val string) error {
-	glog.V(4).Infof("#####set key=%s val =%s\n ", key,val)
+	glog.V(4).Infof("#####set key=%s val =%s\n ", key, val)
 	ctx, cancel := context.WithTimeout(etcdcli.ctx, etcdcli.timeOut)
 	defer cancel()
 	opts, err := etcdcli.ttlOpts(ctx, int64(0))
@@ -129,8 +129,8 @@ func (etcdcli *EtcdV3) Set(key string, val string) error {
 
 // Create implements storage.Interface.Creat
 func (etcdcli *EtcdV3) SetKeys(keys []string, vals []string) error {
-	glog.V(4).Infof("#####set keys=%s vals =%s\n ", keys,vals)
-	if len(keys) != len(vals){
+	glog.V(4).Infof("#####set keys=%s vals =%s\n ", keys, vals)
+	if len(keys) != len(vals) {
 		return errors.New("not match ")
 	}
 	ctx, cancel := context.WithTimeout(etcdcli.ctx, etcdcli.timeOut)
@@ -139,18 +139,18 @@ func (etcdcli *EtcdV3) SetKeys(keys []string, vals []string) error {
 	if err != nil {
 		return err
 	}
-	var ifOps [] clientv3.Cmp
-	var setOps []  clientv3.Op
-	for idx ,key := range keys{
+	var ifOps []clientv3.Cmp
+	var setOps []clientv3.Op
+	for idx, key := range keys {
 		ifOp := notFound(key)
 		setOp := clientv3.OpPut(key, vals[idx], opts...)
-		ifOps = append(ifOps,ifOp)
-		setOps = append(setOps,setOp)
+		ifOps = append(ifOps, ifOp)
+		setOps = append(setOps, setOp)
 	}
 	txnResp, err := etcdcli.client.KV.Txn(ctx).If(
-		ifOps...
+		ifOps...,
 	).Then(
-		setOps...
+		setOps...,
 	).Commit()
 	if err != nil {
 		return err
@@ -166,18 +166,18 @@ func (etcdcli *EtcdV3) DeleteKeys(keys []string) error {
 	glog.V(4).Infof("#####DeleteKeys keys=%s \n ", keys)
 	ctx, cancel := context.WithTimeout(etcdcli.ctx, etcdcli.timeOut)
 	defer cancel()
-	var ifOps [] clientv3.Cmp
-	var delOps []  clientv3.Op
-	for _ ,key := range keys{
+	var ifOps []clientv3.Cmp
+	var delOps []clientv3.Op
+	for _, key := range keys {
 		ifOp := keyFound(key)
 		delOp := clientv3.OpDelete(key)
-		ifOps = append(ifOps,ifOp)
-		delOps = append(delOps,delOp)
+		ifOps = append(ifOps, ifOp)
+		delOps = append(delOps, delOp)
 	}
 	txnResp, err := etcdcli.client.KV.Txn(ctx).If(
-		ifOps...
+		ifOps...,
 	).Then(
-		delOps...
+		delOps...,
 	).Commit()
 	if err != nil {
 		return err
@@ -187,9 +187,10 @@ func (etcdcli *EtcdV3) DeleteKeys(keys []string) error {
 	}
 	return nil
 }
+
 // Create implements storage.Interface.Creat
-func (etcdcli *EtcdV3) DeleteAndSetKey(keyOld,keyNew,value string) error {
-	glog.V(4).Infof("#####DeleteAndSetKey keyOld=%s  keyNew=%s value =%s\n ", keyOld,keyNew,value )
+func (etcdcli *EtcdV3) DeleteAndSetKey(keyOld, keyNew, value string) error {
+	glog.V(4).Infof("#####DeleteAndSetKey keyOld=%s  keyNew=%s value =%s\n ", keyOld, keyNew, value)
 	ctx, cancel := context.WithTimeout(etcdcli.ctx, etcdcli.timeOut)
 	defer cancel()
 	opts, err := etcdcli.ttlOpts(ctx, int64(0))
@@ -214,7 +215,7 @@ func (etcdcli *EtcdV3) DeleteAndSetKey(keyOld,keyNew,value string) error {
 }
 
 func (etcdcli *EtcdV3) Update(key string, val string, valPre string) error {
-	glog.V(4).Infof("#####   Update key=%s val =%s valPre =%s\n ", key,val,valPre)
+	glog.V(4).Infof("#####   Update key=%s val =%s valPre =%s\n ", key, val, valPre)
 	ctx, cancel := context.WithTimeout(etcdcli.ctx, etcdcli.timeOut)
 	defer cancel()
 
@@ -257,13 +258,13 @@ func (etcdcli *EtcdV3) DoDelete(key string) error {
 }
 
 func (etcdcli *EtcdV3) Delete(res *clientv3.GetResponse) error {
-        var keys [] string
+	var keys []string
 	for _, item := range res.Kvs {
 		keys = append(keys, string(item.Key))
 	}
 	return etcdcli.DeleteKeys(keys)
 }
 
-func (s *EtcdV3)Watch(ctx context.Context, key string, opts ...clientv3.OpOption) clientv3.WatchChan {
-    return s.client.Watch(ctx, key, opts...)
+func (s *EtcdV3) Watch(ctx context.Context, key string, opts ...clientv3.OpOption) clientv3.WatchChan {
+	return s.client.Watch(ctx, key, opts...)
 }
