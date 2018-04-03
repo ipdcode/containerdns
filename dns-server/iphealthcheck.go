@@ -1,20 +1,19 @@
 package dnsServer
 
 import (
+	"context"
 	"encoding/json"
 	"github.com/coreos/etcd/clientv3"
 	"github.com/coreos/etcd/mvcc/mvccpb"
 	"github.com/golang/glog"
-	"golang.org/x/net/context"
 	"strings"
 	"time"
-
 )
 
 type apiSkydnsIpMonitor struct {
-	Status string   `json:"status,omitempty"`
-	Ports  []string `json:"ports,omitempty"`
-	Domains  []string `json:"domains,omitempty"`
+	Status  string   `json:"status,omitempty"`
+	Ports   []string `json:"ports,omitempty"`
+	Domains []string `json:"domains,omitempty"`
 }
 
 func (s *server) GetSkydnsHostStatus() int64 {
@@ -26,7 +25,7 @@ func (s *server) GetSkydnsHostStatus() int64 {
 	var record apiSkydnsIpMonitor
 	glog.Infof("SyncSkydnsHostStatus start out \n")
 	if err1 != nil {
-		if strings.HasPrefix(err1.Error(),"context deadline exceeded"){
+		if strings.HasPrefix(err1.Error(), "context deadline exceeded") {
 			glog.Fatalf("err =%s \n", err1.Error())
 		}
 		glog.Infof("Err: %s\n", err1.Error())
@@ -52,7 +51,7 @@ func (s *server) GetSkydnsHostStatus() int64 {
 	return records.Header.Revision
 }
 
-func (s *server) SyncSkydnsHostStatus()  {
+func (s *server) SyncSkydnsHostStatus() {
 	// get hosts form /containerdns/monitor/status/
 
 	sycNow := time.Now().Local()
@@ -74,10 +73,10 @@ func (s *server) SyncSkydnsHostStatus()  {
 			monitorIps[ip] = true
 		}
 	}
-	glog.Infof("SyncSkydnsHostStatus  len : %d \n",len(monitorIps))
+	glog.Infof("SyncSkydnsHostStatus  len : %d \n", len(monitorIps))
 	s.rcache.Lock()
 	// no change we update  the ips
-	if s.rcache.AvaliableIpsUpdateTime.Before(sycNow){
+	if s.rcache.AvaliableIpsUpdateTime.Before(sycNow) {
 		glog.Infof("SyncSkydnsHostStatus : exchanged \n")
 		s.rcache.AvaliableIps = monitorIps
 	}
@@ -123,14 +122,14 @@ func (s *server) doUpdateHostStatus(kv, kvPre *mvccpb.KeyValue) {
 	}
 }
 
-func (s *server)  WatchForHosts(watchidx int64,client clientv3.Client){
+func (s *server) WatchForHosts(watchidx int64, client clientv3.Client) {
 
 	var watcher clientv3.WatchChan
 	var wres clientv3.WatchResponse
 	recordCatched := false
 reWatch:
-        if recordCatched{
-		watchidx = watchidx+1
+	if recordCatched {
+		watchidx = watchidx + 1
 		recordCatched = false
 	}
 	glog.Infof("WatchForHosts idx : %d ", watchidx)
@@ -159,16 +158,16 @@ reWatch:
 	}
 
 	if err := wres.Err(); err != nil {
-		glog.Infof("WatchForHosts err =%s\n",err)
+		glog.Infof("WatchForHosts err =%s\n", err)
 		watchidx = wres.Header.Revision
 		goto reWatch
 	}
 	if err := ctx.Err(); err != nil {
-		glog.Infof("WatchForHosts err =%s\n",err)
+		glog.Infof("WatchForHosts err =%s\n", err)
 		watchidx = wres.Header.Revision
 		goto reWatch
 	}
-	glog.Infof("WatchForHosts out : %d  watcher=%v", watchidx,watcher)
+	glog.Infof("WatchForHosts out : %d  watcher=%v", watchidx, watcher)
 }
 
 func (s *server) UpdateHostStatus(e *clientv3.Event) {

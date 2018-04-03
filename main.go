@@ -12,25 +12,23 @@ const char* build_time(void)
 */
 import "C"
 
-
 import (
+	"context"
 	"flag"
 	"fmt"
 	etcdv3 "github.com/coreos/etcd/clientv3"
 	"github.com/coreos/etcd/pkg/transport"
 	"github.com/golang/glog"
+	"github.com/miekg/dns"
 	backendetcdCached "github.com/tiglabs/containerdns/backends/etcd-cached"
 	server "github.com/tiglabs/containerdns/dns-server"
-	"github.com/miekg/dns"
-	"golang.org/x/net/context"
+	"gopkg.in/gcfg.v1"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
-	"os"
-	"gopkg.in/gcfg.v1"
-
 )
 
 const (
@@ -38,50 +36,48 @@ const (
 )
 
 var (
-	gConfig        *ConfigOps
-	configFile     = ""
-	version        = false
+	gConfig    *ConfigOps
+	configFile = ""
+	version    = false
 )
 
 type LogOps struct {
-	LogDir        string `gcfg:"log-dir"`
-	LogLevel      string `gcfg:"log-level"`
-	LogStdIo      string `gcfg:"log-to-stdio"`
+	LogDir   string `gcfg:"log-dir"`
+	LogLevel string `gcfg:"log-level"`
+	LogStdIo string `gcfg:"log-to-stdio"`
 }
 type EtcdOps struct {
-	EtcdServers     string `gcfg:"etcd-servers"`
-	EtcdCertfile    string `gcfg:"etcd-certfile"`
-	EtcdKeyfile     string `gcfg:"etcd-keyfile"`
-	EtcdCafile      string `gcfg:"etcd-cafile"`
-
+	EtcdServers  string `gcfg:"etcd-servers"`
+	EtcdCertfile string `gcfg:"etcd-certfile"`
+	EtcdKeyfile  string `gcfg:"etcd-keyfile"`
+	EtcdCafile   string `gcfg:"etcd-cafile"`
 }
 type DnsOps struct {
-	SkydnsDomains      string `gcfg:"dns-domains"`
-	SkydnsAddr        string `gcfg:"dns-addr"`
-	Nameservers       string `gcfg:"ex-nameservers"`
-	InDomainServers  string `gcfg:"inDomainServers"`
-	CacheSize         int  `gcfg:"cacheSize"`
-	IpMonitorPath    string `gcfg:"ip-monitor-path"`
-	SkipDomain      bool `gcfg:"skipDomain"`
+	SkydnsDomains   string `gcfg:"dns-domains"`
+	SkydnsAddr      string `gcfg:"dns-addr"`
+	Nameservers     string `gcfg:"ex-nameservers"`
+	InDomainServers string `gcfg:"inDomainServers"`
+	CacheSize       int    `gcfg:"cacheSize"`
+	IpMonitorPath   string `gcfg:"ip-monitor-path"`
+	SkipDomain      bool   `gcfg:"skipDomain"`
 }
-type  FunFeature struct {
-	RandomOne   bool `gcfg:"random-one"`
-	IpHold      bool `gcfg:"hone-one"`
+type FunFeature struct {
+	RandomOne bool `gcfg:"random-one"`
+	IpHold    bool `gcfg:"hone-one"`
 }
 
-type  StatsServer struct {
-	StatsServer  		 string `gcfg:"statsServer"`
-	StatsServerAuthToken      string `gcfg:"statsServerAuthToken"`
+type StatsServer struct {
+	StatsServer          string `gcfg:"statsServer"`
+	StatsServerAuthToken string `gcfg:"statsServerAuthToken"`
 }
 
 type ConfigOps struct {
-	Dns       DnsOps
-	Log       LogOps
-	Etcd      EtcdOps
-	Fun       FunFeature
-	Stats     StatsServer
+	Dns   DnsOps
+	Log   LogOps
+	Etcd  EtcdOps
+	Fun   FunFeature
+	Stats StatsServer
 }
-
 
 func readConfig(configPath string) (*ConfigOps, error) {
 
@@ -98,19 +94,19 @@ func readConfig(configPath string) (*ConfigOps, error) {
 	return cfg, err
 }
 
-func configSetDefaults(config *ConfigOps)  {
+func configSetDefaults(config *ConfigOps) {
 
 	if config.Dns.SkydnsAddr == "" {
 		config.Dns.SkydnsAddr = "127.0.0.1:53"
 	}
 	if config.Dns.SkydnsDomains == "" {
-		config.Dns.SkydnsDomains  = "containerdns.local."
+		config.Dns.SkydnsDomains = "containerdns.local."
 	}
-	if config.Dns.IpMonitorPath ==""{
+	if config.Dns.IpMonitorPath == "" {
 		config.Dns.IpMonitorPath = "/containerdns/monitor/status/"
 	}
 
-	if config.Dns.CacheSize  < 100000 {
+	if config.Dns.CacheSize < 100000 {
 		config.Dns.CacheSize = 100000
 	}
 
@@ -159,7 +155,7 @@ func checkHostPort(hostPort string) error {
 func newEtcdV3Client(machines []string) (*etcdv3.Client, error) {
 	info := transport.TLSInfo{
 		CertFile: gConfig.Etcd.EtcdCertfile,
-		KeyFile:   gConfig.Etcd.EtcdKeyfile,
+		KeyFile:  gConfig.Etcd.EtcdKeyfile,
 		CAFile:   gConfig.Etcd.EtcdCafile,
 	}
 	cfg, err := info.ClientConfig()
@@ -180,7 +176,7 @@ func newEtcdV3Client(machines []string) (*etcdv3.Client, error) {
 	}
 	etcdCfg := etcdv3.Config{
 		Endpoints: machines,
-		TLS: tr.TLSClientConfig,
+		TLS:       tr.TLSClientConfig,
 	}
 	cli, err := etcdv3.New(etcdCfg)
 	if err != nil {
@@ -189,13 +185,12 @@ func newEtcdV3Client(machines []string) (*etcdv3.Client, error) {
 	return cli, nil
 }
 
-
 var VERSION string
 
 func main() {
 	flag.Parse()
 	if version {
-		s := server.Version + ": "+ VERSION
+		s := server.Version + ": " + VERSION
 		fmt.Printf("%s\n", s)
 		return
 	}
@@ -284,19 +279,19 @@ func main() {
 	backend = backendetcdCached.NewBackend(clientv3, ctx, 60, 3600, 10)
 
 	s := server.New(backend, dnsDomains, gConfig.Dns.SkydnsAddr, gConfig.Dns.IpMonitorPath,
-		forwardNameServers, subDomainServers, gConfig.Dns.CacheSize, gConfig.Fun.RandomOne, gConfig.Fun.IpHold,gConfig.Dns.SkipDomain)
-        glog.Infof("dnsDomains = %v\n",dnsDomains)
-	for _, domain := range (dnsDomains) {
+		forwardNameServers, subDomainServers, gConfig.Dns.CacheSize, gConfig.Fun.RandomOne, gConfig.Fun.IpHold, gConfig.Dns.SkipDomain)
+	glog.Infof("dnsDomains = %v\n", dnsDomains)
+	for _, domain := range dnsDomains {
 		domainWatchIdx := int64(0)
 		domainWatchIdx = s.GetEtcdCachedRecordsAfterStart(domain)
 		glog.Infof("domainWatchIdx =%v  dir =%s \n", domainWatchIdx, server.DnsPath(domain))
 		// watch domains
-		go s.WatchForDnsDomain(domain,domainWatchIdx + 1, clientv3)
+		go s.WatchForDnsDomain(domain, domainWatchIdx+1, clientv3)
 	}
 	// before server run we get the active ips
 	ipWatchIdx := s.GetSkydnsHostStatus()
 	glog.Infof("ipWatchIdx =%v   dir =%s\n", ipWatchIdx, gConfig.Dns.IpMonitorPath)
-        go s.WatchForHosts(ipWatchIdx +1,clientv3)
+	go s.WatchForHosts(ipWatchIdx+1, clientv3)
 
 	// syc tasks
 	go s.SyncEtcdCachedRecords()
@@ -306,5 +301,3 @@ func main() {
 
 	s.RunToEnd()
 }
-
-

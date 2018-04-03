@@ -3,14 +3,15 @@
 package etcdCached
 
 import (
-	"errors"
+	"context"
 	"encoding/json"
+	"errors"
 	etcdv3 "github.com/coreos/etcd/clientv3"
-	dnsServer "github.com/tiglabs/containerdns/dns-server"
-	"golang.org/x/net/context"
-	"time"
 	"github.com/coreos/etcd/mvcc/mvccpb"
+	dnsServer "github.com/tiglabs/containerdns/dns-server"
+	"time"
 )
+
 const ErrorCodeKeyNotFound = "key not found"
 
 type Backend struct {
@@ -20,7 +21,7 @@ type Backend struct {
 }
 
 // NewBackend returns a new Backend for containerdns, backed by etcd.
-func NewBackend(clientv3 etcdv3.Client, ctx context.Context,timeOut int , ttl uint32, priority uint16) *Backend {
+func NewBackend(clientv3 etcdv3.Client, ctx context.Context, timeOut int, ttl uint32, priority uint16) *Backend {
 	backend := new(Backend)
 	backend.clientv3 = clientv3
 	backend.ctx = ctx
@@ -43,7 +44,7 @@ func (g *Backend) Records(name string) ([]dnsServer.ServiceRecord, error) {
 func (g *Backend) Get(name string) ([]dnsServer.ServiceRecord, int64, error) {
 
 	path := dnsServer.DnsPath(name)
-	ctx, cancel := context.WithTimeout(g.ctx, g.timeOut )
+	ctx, cancel := context.WithTimeout(g.ctx, g.timeOut)
 	defer cancel()
 	r, err := g.clientv3.Get(ctx, path, etcdv3.WithPrefix())
 	if err != nil {
