@@ -37,6 +37,24 @@ char host_name[64]={0};
 static struct	kdns kdns_tcp;
 static struct  query *query_tcp = NULL;
 
+struct netif_queue_stats tcp_stats;
+
+void tcp_statsdata_get(struct netif_queue_stats *sta)
+{
+    sta->dns_fwd_rcv = tcp_stats.dns_fwd_rcv;
+    sta->dns_fwd_snd = tcp_stats.dns_fwd_snd;
+    sta->dns_pkts_rcv = tcp_stats.dns_pkts_rcv;
+    sta->dns_pkts_snd = tcp_stats.dns_pkts_snd;
+
+    return;
+}
+
+void tcp_statsdata_reset()
+{
+    memset(&tcp_stats, 0, sizeof(tcp_stats));
+    return;
+}
+
 int tcp_domian_databd_update(struct domin_info_update* update){
     
     return domaindata_update(kdns_tcp.db,update);
@@ -69,6 +87,7 @@ static int dns_do_remote_tcp_query(int sock_fd,char *domain, char *snd_buf,ssize
 
 static int dns_handle_tcp_remote(int sndsock, char *snd_pkt,uint16_t old_id,int snd_len,char *domain){
 
+    tcp_stats.dns_fwd_rcv++;
     int sock_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (sock_fd == -1){      
         log_msg(LOG_ERR,"dns_handle_tcp_remote sock() error");
@@ -104,7 +123,9 @@ static int dns_handle_tcp_remote(int sndsock, char *snd_pkt,uint16_t old_id,int 
          memcpy(recv_buf,&len,2);
          if(send(sndsock,recv_buf,retfwd +2,0) == -1){   
              log_msg(LOG_ERR," last send error %s\n",domain);
-         } 
+         }
+
+         tcp_stats.dns_fwd_snd++;
     }  
     close(sock_fd);
     return 0;   
@@ -183,16 +204,17 @@ static void *dns_tcp_process(void *arg) {
                   continue;
             }
 
+            tcp_stats.dns_pkts_rcv++;
+            int retLen = buffer_remaining(query_tcp->packet);
+            if (retLen > 0) {
+                uint16_t  len = htons(retLen);
+                memcpy(buf,&len,2);
+                if(send(temp_sock_descriptor,buf,retLen+2,0) == -1) {
+                    log_msg(LOG_ERR," send error\n");
+                }
 
-             int retLen = buffer_remaining(query_tcp->packet);
-             if (retLen > 0) {
-                 uint16_t  len = htons(retLen);
-                 memcpy(buf,&len,2);
-                 if(send(temp_sock_descriptor,buf,retLen+2,0) == -1){   
-                        log_msg(LOG_ERR," send error\n");
-                 } 
-                
-             }
+                tcp_stats.dns_pkts_snd++;
+            }
  
             close(temp_sock_descriptor);  
     }   
